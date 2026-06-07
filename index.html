@@ -281,6 +281,54 @@ table.devis-table tbody td{padding:10px 14px;border-bottom:1px solid var(--purpl
   margin-top:8px;padding:10px 14px;background:var(--warm);border-radius:7px;
   font-size:.78rem;color:var(--ink-light);border-left:3px solid var(--pink);
 }
+
+/* ══ CRÉNEAUX ══ */
+.creneaux-container{display:flex;flex-direction:column;gap:12px;margin-top:4px}
+.creneau-card{
+  background:var(--cream);border:1.5px solid var(--purple-mid);border-radius:10px;
+  padding:14px 16px;position:relative;transition:border-color .2s;
+}
+.creneau-card:focus-within{border-color:var(--purple)}
+.creneau-header{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:12px;
+}
+.creneau-num{
+  font-size:.78rem;font-weight:700;color:var(--purple);text-transform:uppercase;
+  letter-spacing:.06em;
+}
+.btn-remove-creneau{
+  background:none;border:none;color:#C0392B;cursor:pointer;font-size:.9rem;
+  padding:2px 6px;border-radius:4px;transition:background .15s;line-height:1;
+  font-family:inherit;font-weight:600;
+}
+.btn-remove-creneau:hover{background:#FDECEA}
+.creneau-jours{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px}
+.jour-pill input{display:none}
+.jour-pill label{
+  display:block;padding:7px 13px;border-radius:50px;
+  border:1.5px solid var(--purple-mid);font-size:.83rem;font-weight:500;
+  cursor:pointer;color:var(--ink-light);transition:all .15s;
+  user-select:none;-webkit-user-select:none;
+}
+.jour-pill input:checked+label{background:var(--purple);border-color:var(--purple);color:white}
+.creneau-horaires{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.creneau-horaires label{font-size:.78rem;font-weight:600;color:var(--ink-light);text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+.creneau-horaires select{
+  border:1.5px solid var(--purple-mid);border-radius:7px;padding:8px 10px;
+  font-family:inherit;font-size:.88rem;color:var(--ink);background:white;
+  outline:none;cursor:pointer;transition:border-color .2s;
+}
+.creneau-horaires select:focus{border-color:var(--purple)}
+.creneau-sep{color:var(--ink-light);font-size:.85rem;font-weight:500}
+.btn-add-creneau{
+  display:flex;align-items:center;gap:8px;
+  background:white;border:1.5px dashed var(--purple-mid);border-radius:10px;
+  padding:12px 18px;font-family:inherit;font-size:.88rem;font-weight:600;
+  color:var(--purple);cursor:pointer;transition:all .2s;width:100%;justify-content:center;
+  margin-top:4px;
+}
+.btn-add-creneau:hover{background:var(--purple-light);border-color:var(--purple)}
 .signature-block{margin-top:28px;display:flex;gap:32px}
 .sig{flex:1;border:1.5px dashed var(--purple-mid);border-radius:8px;padding:20px;text-align:center}
 .sig .sig-label{font-size:.78rem;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-light);font-weight:600}
@@ -751,7 +799,11 @@ table.devis-table tbody td{padding:10px 14px;border-bottom:1px solid var(--purpl
           </div>
         </div>
         <div class="field"><label>Date de début souhaitée</label><input type="date" id="f-date-debut"></div>
-        <div class="field"><label>Créneau préféré</label><input type="text" id="f-creneau" placeholder="Ex : Lundi matin, Jeudi 14h-17h"></div>
+        <div class="field full">
+          <label>Créneaux préférés</label>
+          <div class="creneaux-container" id="creneaux-container"></div>
+          <button type="button" class="btn-add-creneau" onclick="addCreneau()">+ Ajouter un créneau</button>
+        </div>
       </div>
     </div>
     <div id="err-0" class="global-error">Merci de renseigner les champs obligatoires (*) avant de continuer.</div>
@@ -1274,7 +1326,7 @@ function generateDevis() {
   const prestation = document.querySelector('input[name="prestation"]:checked')?.value||"";
   const frequence  = document.querySelector('input[name="frequence"]:checked')?.value||"";
   const dateDebut  = document.getElementById("f-date-debut").value;
-  const creneau    = document.getElementById("f-creneau").value.trim();
+  const creneau    = getCreneauxText();
   const logtype    = document.querySelector('input[name="logtype"]:checked')?.value||"";
   const m2         = parseInt(document.getElementById("f-surface").value)||0;
   const pieces     = document.getElementById("f-pieces").value;
@@ -1413,10 +1465,145 @@ function generateDevis() {
 }
 
 // ═══════════════════════════════════════════════════
+// CRÉNEAUX
+// ═══════════════════════════════════════════════════
+const JOURS = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
+
+function genHeures() {
+  const opts = [];
+  for (let h = 7; h <= 21; h++) {
+    opts.push(`${String(h).padStart(2,'0')}h00`);
+    if (h < 21) opts.push(`${String(h).padStart(2,'0')}h30`);
+  }
+  return opts;
+}
+const HEURES = genHeures();
+
+let creneauCount = 0;
+
+function addCreneau() {
+  creneauCount++;
+  const id = creneauCount;
+  const container = document.getElementById("creneaux-container");
+
+  const card = document.createElement("div");
+  card.className = "creneau-card";
+  card.id = "creneau-" + id;
+
+  // Header
+  const header = document.createElement("div");
+  header.className = "creneau-header";
+  header.innerHTML = `<span class="creneau-num">Créneau ${id}</span>
+    <button type="button" class="btn-remove-creneau" onclick="removeCreneau(${id})" title="Supprimer ce créneau">✕ Supprimer</button>`;
+
+  // Jours
+  const joursDiv = document.createElement("div");
+  joursDiv.className = "creneau-jours";
+  JOURS.forEach(j => {
+    const pill = document.createElement("div");
+    pill.className = "jour-pill";
+    const inputId = `cren${id}-${j}`;
+    pill.innerHTML = `<input type="checkbox" id="${inputId}" name="cren${id}-jour" value="${j}">
+      <label for="${inputId}">${j}</label>`;
+    joursDiv.appendChild(pill);
+  });
+
+  // Horaires
+  const horairesDiv = document.createElement("div");
+  horairesDiv.className = "creneau-horaires";
+
+  const selDeb = document.createElement("select");
+  selDeb.id = `cren${id}-deb`;
+  HEURES.forEach((h,i) => {
+    const o = document.createElement("option");
+    o.value = h; o.textContent = h;
+    if (i === 6) o.selected = true; // défaut 09h00
+    selDeb.appendChild(o);
+  });
+
+  const selFin = document.createElement("select");
+  selFin.id = `cren${id}-fin`;
+  HEURES.forEach((h,i) => {
+    const o = document.createElement("option");
+    o.value = h; o.textContent = h;
+    if (i === 10) o.selected = true; // défaut 12h00
+    selFin.appendChild(o);
+  });
+
+  // Auto-adjust fin > deb
+  selDeb.addEventListener("change", () => {
+    const debIdx = HEURES.indexOf(selDeb.value);
+    const finIdx = HEURES.indexOf(selFin.value);
+    if (finIdx <= debIdx) selFin.value = HEURES[Math.min(debIdx + 2, HEURES.length - 1)];
+  });
+
+  horairesDiv.innerHTML = `<label>De</label>`;
+  horairesDiv.appendChild(selDeb);
+  horairesDiv.innerHTML += `<span class="creneau-sep">→</span>`;
+  // re-append after innerHTML reset — use proper order
+  const labelDe = document.createElement("label");
+  labelDe.textContent = "De";
+  const sep = document.createElement("span");
+  sep.className = "creneau-sep"; sep.textContent = "→";
+  const labelA = document.createElement("label");
+  labelA.textContent = "à";
+
+  horairesDiv.innerHTML = "";
+  horairesDiv.appendChild(labelDe);
+  horairesDiv.appendChild(selDeb);
+  horairesDiv.appendChild(sep);
+  horairesDiv.appendChild(labelA);
+  horairesDiv.appendChild(selFin);
+
+  card.appendChild(header);
+  card.appendChild(joursDiv);
+  card.appendChild(horairesDiv);
+  container.appendChild(card);
+
+  // Renumber all
+  renumberCreneaux();
+}
+
+function removeCreneau(id) {
+  const el = document.getElementById("creneau-" + id);
+  if (el) el.remove();
+  renumberCreneaux();
+}
+
+function renumberCreneaux() {
+  const cards = document.querySelectorAll(".creneau-card");
+  cards.forEach((card, i) => {
+    const numEl = card.querySelector(".creneau-num");
+    if (numEl) numEl.textContent = `Créneau ${i + 1}`;
+  });
+}
+
+function getCreneauxText() {
+  const cards = document.querySelectorAll(".creneau-card");
+  if (cards.length === 0) return "";
+  const parts = [];
+  cards.forEach((card, i) => {
+    const id = card.id.replace("creneau-", "");
+    const jours = [...card.querySelectorAll(`input[name="cren${id}-jour"]:checked`)].map(el => el.value);
+    const deb = card.querySelector(`[id$="-deb"]`)?.value || "";
+    const fin = card.querySelector(`[id$="-fin"]`)?.value || "";
+    if (jours.length > 0 || deb) {
+      const joursStr = jours.length > 0 ? jours.join(", ") : "Jour non précisé";
+      parts.push(`Créneau ${i+1} : ${joursStr} · ${deb}–${fin}`);
+    }
+  });
+  return parts.join(" | ");
+}
+
+// Ajouter un créneau par défaut au chargement
+function initCreneaux() { addCreneau(); }
+
+// ═══════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════
 document.getElementById("f-date-debut").value = new Date().toISOString().split("T")[0];
 applyColors();
+initCreneaux();
 </script>
 </body>
 </html>
