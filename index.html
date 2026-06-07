@@ -598,6 +598,7 @@ table.devis-table tbody td{padding:10px 14px;border-bottom:1px solid var(--purpl
       <button class="admin-tab" onclick="adminTab('tasks')">📋 Tâches</button>
       <button class="admin-tab" onclick="adminTab('template')">📄 Devis</button>
       <button class="admin-tab" onclick="adminTab('design')">🎨 Design</button>
+      <button class="admin-tab" onclick="adminTab('versions')">🔄 Versions</button>
     </div>
 
     <div class="admin-body">
@@ -690,6 +691,51 @@ table.devis-table tbody td{padding:10px 14px;border-bottom:1px solid var(--purpl
           <div class="a-field"><label>Approfondi min/m²</label><input type="number" id="sup-amin" step="0.1" oninput="liveApply()"></div>
           <div class="a-field"><label>Approfondi max/m²</label><input type="number" id="sup-amax" step="0.1" oninput="liveApply()"></div>
         </div>
+      </div>
+
+      <!-- ── VERSIONS ── -->
+      <div class="admin-section" id="asec-versions">
+        <h3>Version de l'application</h3>
+        <div style="background:var(--purple-light);border-radius:8px;padding:14px 16px;margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <div>
+              <div style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-light)">Version du fichier HTML</div>
+              <div style="font-size:1.1rem;font-weight:700;color:var(--purple);margin-top:4px" id="ver-app">–</div>
+            </div>
+            <div>
+              <div style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-light)">Version de la config sauvegardée</div>
+              <div style="font-size:1.1rem;font-weight:700;color:var(--purple);margin-top:4px" id="ver-saved">–</div>
+            </div>
+            <div id="ver-status"></div>
+          </div>
+        </div>
+
+        <h3>Que se passe-t-il lors d'une mise à jour ?</h3>
+        <div style="font-size:.83rem;color:var(--ink-light);line-height:1.7;margin-bottom:16px;background:var(--warm);border-radius:8px;padding:12px 16px;border-left:3px solid var(--pink)">
+          Lorsque vous importez une nouvelle version du fichier HTML, l'application compare automatiquement la version du fichier avec celle de la configuration sauvegardée dans le navigateur.<br><br>
+          <strong>Si les versions sont compatibles</strong> → toutes vos modifications (tâches, tarifs, couleurs, comptes…) sont préservées.<br>
+          <strong>Si la structure a changé</strong> → une migration automatique fusionne l'ancienne config avec la nouvelle, sans rien perdre.
+        </div>
+
+        <h3>Historique des migrations</h3>
+        <div id="ver-changelog" style="font-size:.83rem"></div>
+
+        <hr class="admin-sep">
+        <h3>Export / Import de la configuration</h3>
+        <p style="font-size:.82rem;color:var(--ink-light);margin-bottom:12px">Sauvegardez toute la configuration dans un fichier JSON pour la partager entre collaborateurs ou la restaurer après un changement d'appareil.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn-sm btn-sm-purple" onclick="exportConfig()">⬇ Exporter la config</button>
+          <label class="btn-sm btn-sm-gray" style="cursor:pointer">
+            ⬆ Importer une config
+            <input type="file" accept=".json" onchange="importConfig(event)" style="display:none">
+          </label>
+        </div>
+        <div id="import-msg" style="margin-top:10px;font-size:.82rem;display:none"></div>
+
+        <hr class="admin-sep">
+        <h3 style="color:#C0392B">Zone de danger</h3>
+        <p style="font-size:.82rem;color:var(--ink-light);margin-bottom:10px">Réinitialise entièrement la configuration aux valeurs par défaut du fichier HTML. <strong>Toutes les modifications seront perdues.</strong></p>
+        <button class="btn-sm btn-sm-red" onclick="resetAllConfig()">⚠ Réinitialiser toute la configuration</button>
       </div>
 
       <!-- ── DESIGN ── -->
@@ -877,10 +923,18 @@ table.devis-table tbody td{padding:10px 14px;border-bottom:1px solid var(--purpl
 // ═══════════════════════════════════════════════════
 const LOGO_URI = "data:image/png;base64,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";
 
-let CFG = loadCFG();
+// ═══════════════════════════════════════════════════
+// VERSIONING — à incrémenter à chaque modification
+// structurelle de la config (nouveaux champs, etc.)
+// ═══════════════════════════════════════════════════
+const APP_VERSION = "1.0.0";
+const STORAGE_KEY  = "fds_cfg";
+const VERSION_KEY  = "fds_cfg_version";
+const CHANGELOG_KEY = "fds_cfg_changelog";
 
 function defaultCFG() {
   return {
+    _version: APP_VERSION,
     company: "Famille & Domicile Services",
     mention: "Organisme prestataire agréé par l'État",
     cg: "Intervention en mode prestataire (l'intervenant est salarié de Famille & Domicile Services). Une facture sera établie mensuellement. Famille & Domicile Services est un organisme agréé et déclaré par l'État. Vous pouvez bénéficier d'un crédit d'impôt égal à 50 % de l'ensemble de nos coûts dans la limite des plafonds légaux (CGI art. 199 sexdecies). Les durées sont des estimations indicatives susceptibles de varier selon l'état réel du logement, le volume de linge et les contraintes d'accès.",
@@ -914,17 +968,69 @@ function defaultCFG() {
   };
 }
 
+// ── Fusion profonde : préserve les valeurs sauvegardées,
+//    complète les champs manquants avec les valeurs par défaut ──
+function deepMerge(saved, defaults) {
+  const result = { ...defaults };
+  for (const key of Object.keys(defaults)) {
+    if (!(key in saved)) continue; // champ absent → garde la valeur par défaut
+    const sv = saved[key], dv = defaults[key];
+    if (Array.isArray(dv)) {
+      // Tableaux simples (taches, users, supTemps niveaux) → on garde le sauvegardé
+      result[key] = Array.isArray(sv) ? sv : dv;
+    } else if (typeof dv === "object" && dv !== null && !Array.isArray(dv)) {
+      // Objets imbriqués (colors, supTemps) → fusion récursive
+      result[key] = deepMerge(sv || {}, dv);
+    } else {
+      result[key] = sv; // valeur primitive → on garde le sauvegardé
+    }
+  }
+  return result;
+}
+
 function loadCFG() {
   try {
-    const s = localStorage.getItem("fds_cfg");
-    if (s) return JSON.parse(s);
-  } catch(e){}
-  return defaultCFG();
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return defaultCFG();
+
+    const saved = JSON.parse(raw);
+    const defaults = defaultCFG();
+    const savedVersion = saved._version || "0.0.0";
+
+    // Pas de changement de version → charge directement
+    if (savedVersion === APP_VERSION) return saved;
+
+    // Version différente → migration par fusion
+    console.info(`[FDS] Migration config ${savedVersion} → ${APP_VERSION}`);
+    const migrated = deepMerge(saved, defaults);
+    migrated._version = APP_VERSION;
+
+    // Journal des migrations
+    const changelog = JSON.parse(localStorage.getItem(CHANGELOG_KEY) || "[]");
+    changelog.unshift({
+      date: new Date().toISOString(),
+      from: savedVersion,
+      to: APP_VERSION,
+      fields_added: Object.keys(defaults).filter(k => !(k in saved))
+    });
+    localStorage.setItem(CHANGELOG_KEY, JSON.stringify(changelog.slice(0, 20)));
+
+    // Sauvegarde immédiate de la config migrée
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+    return migrated;
+
+  } catch(e) {
+    console.warn("[FDS] Erreur lecture config, réinitialisation :", e);
+    return defaultCFG();
+  }
 }
 
 function saveCFG() {
-  localStorage.setItem("fds_cfg", JSON.stringify(CFG));
+  CFG._version = APP_VERSION;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(CFG));
 }
+
+let CFG = loadCFG();
 
 // ═══════════════════════════════════════════════════
 // AUTH
@@ -1019,6 +1125,7 @@ function adminTab(name) {
   document.querySelectorAll(".admin-section").forEach(s => s.classList.remove("active"));
   event.target.classList.add("active");
   document.getElementById("asec-"+name).classList.add("active");
+  if (name === "versions") populateVersionTab();
 }
 
 function populateAdminFields() {
@@ -1028,6 +1135,8 @@ function populateAdminFields() {
   document.getElementById("tpl-cg").value       = CFG.cg;
   document.getElementById("tpl-footer").value   = CFG.footer;
   document.getElementById("tpl-validity").value = CFG.validity;
+  // Versions
+  populateVersionTab();
   // Tarif
   document.getElementById("tpl-tarif").value  = CFG.tarifHoraire || 30;
   document.getElementById("tpl-credit").value = CFG.creditImpot  || 50;
@@ -1462,6 +1571,100 @@ function generateDevis() {
       <div style="margin-top:6px;font-style:italic">${CFG.footer}</div>
       <div class="validity">${CFG.validity}</div>
     </div>`;
+}
+
+// ═══════════════════════════════════════════════════
+// VERSIONS & EXPORT/IMPORT CONFIG
+// ═══════════════════════════════════════════════════
+function populateVersionTab() {
+  const savedVersion = CFG._version || "inconnue";
+  document.getElementById("ver-app").textContent   = "v" + APP_VERSION;
+  document.getElementById("ver-saved").textContent = "v" + savedVersion;
+
+  const statusEl = document.getElementById("ver-status");
+  if (savedVersion === APP_VERSION) {
+    statusEl.innerHTML = '<span style="background:#D4EDDA;color:#1A6830;padding:5px 12px;border-radius:50px;font-size:.8rem;font-weight:700">✓ À jour</span>';
+  } else {
+    statusEl.innerHTML = '<span style="background:#FFF3CD;color:#7B5400;padding:5px 12px;border-radius:50px;font-size:.8rem;font-weight:700">⚠ Migration effectuée</span>';
+  }
+
+  // Changelog
+  const cl = document.getElementById("ver-changelog");
+  try {
+    const log = JSON.parse(localStorage.getItem(CHANGELOG_KEY) || "[]");
+    if (log.length === 0) {
+      cl.innerHTML = '<p style="color:var(--ink-light);font-style:italic">Aucune migration enregistrée.</p>';
+    } else {
+      cl.innerHTML = log.map(e => {
+        const d = new Date(e.date).toLocaleString("fr-FR");
+        const added = e.fields_added?.length
+          ? `<br><span style="color:var(--purple)">Champs ajoutés : ${e.fields_added.join(", ")}</span>`
+          : "";
+        return `<div style="background:var(--cream);border-radius:7px;padding:10px 14px;margin-bottom:8px;border-left:3px solid var(--purple-mid)">
+          <strong>v${e.from} → v${e.to}</strong> &nbsp;·&nbsp; <span style="color:var(--ink-light)">${d}</span>${added}
+        </div>`;
+      }).join("");
+    }
+  } catch(e) {
+    cl.innerHTML = '<p style="color:var(--ink-light)">Impossible de lire le journal.</p>';
+  }
+}
+
+function exportConfig() {
+  const data = JSON.stringify(CFG, null, 2);
+  const blob = new Blob([data], { type: "application/json" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  const date = new Date().toISOString().slice(0,10);
+  a.href = url;
+  a.download = `fds-config-${date}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importConfig(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const msg = document.getElementById("import-msg");
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const imported = JSON.parse(e.target.result);
+      if (typeof imported !== "object" || !imported.company) throw new Error("Format invalide");
+
+      // Fusion avec les défauts pour garantir la complétude
+      const merged = deepMerge(imported, defaultCFG());
+      merged._version = APP_VERSION;
+      CFG = merged;
+      saveCFG();
+      applyColors();
+      buildTaskGrid();
+      populateAdminFields();
+
+      msg.textContent = "✓ Configuration importée et appliquée avec succès.";
+      msg.style.color = "var(--purple)";
+      msg.style.display = "block";
+      setTimeout(() => msg.style.display = "none", 4000);
+    } catch(err) {
+      msg.textContent = "⚠ Fichier invalide. Vérifiez qu'il s'agit bien d'un export de configuration FDS.";
+      msg.style.color = "var(--error)";
+      msg.style.display = "block";
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = ""; // reset input
+}
+
+function resetAllConfig() {
+  if (!confirm("⚠ Réinitialiser TOUTE la configuration aux valeurs par défaut ?\n\nTous les comptes, tâches, tarifs et couleurs personnalisés seront perdus.")) return;
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(CHANGELOG_KEY);
+  CFG = defaultCFG();
+  saveCFG();
+  applyColors();
+  buildTaskGrid();
+  populateAdminFields();
+  alert("Configuration réinitialisée.");
 }
 
 // ═══════════════════════════════════════════════════
