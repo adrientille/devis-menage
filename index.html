@@ -266,7 +266,7 @@ table.admin-table tr:hover td{background:var(--violet-soft)}
       <div class="sub">Connectez-vous pour créer ou consulter un devis</div>
       <div class="field" style="text-align:left">
         <label for="loginUser">Identifiant</label>
-        <input type="text" id="loginUser" autocomplete="username" placeholder="ex: admin">
+        <input type="text" id="loginUser" autocomplete="username" placeholder="prenom.nom">
       </div>
       <div class="field" style="text-align:left;margin-bottom:8px">
         <label for="loginPass">Mot de passe</label>
@@ -347,8 +347,7 @@ function defaultDevisState() {
     client: { civilite: "Mme", nom: "", prenom: "", email: "", telephone: "" },
     logement: { superficie: null, nb_pieces: null, nb_habitants: null, enfants_bas_age: false, animaux: false },
     chemin: null,            // 'budget' | 'resultat'
-    budget_montant: null,
-    budget_periode: "mensuel", // 'mensuel' | 'hebdomadaire'
+    budget_montant: null,    // toujours exprimé en mensuel
     formule_key: null,
     frequence: "hebdomadaire", // pour chemin résultat: hebdomadaire/bimensuel/mensuel
     taches: {},               // { tache_key: { active: bool, niveau: 'leger'|'standard'|'approfondi' } }
@@ -564,7 +563,13 @@ function getTarifHoraire(formuleKey) {
   return STATE.config.tarifs[tarifKey] ?? 30;
 }
 
-// Calcule le coût total {min, max, moyenne} et l'après crédit d'impôt
+// Retourne le coefficient (nb d'interventions par mois) pour une fréquence donnée
+function getCoefficientFrequence(frequence) {
+  const coefs = STATE.config.tarifs.coefficients_frequence || { hebdomadaire: 4.33, bimensuel: 2.17, mensuel: 1 };
+  return coefs[frequence] ?? 1;
+}
+
+// Calcule le coût total {min, max, moyenne} par intervention, par mois, par an, et l'après crédit d'impôt
 function calcCout(devis) {
   const temps = calcTempsTotalMinutes(devis);
   const heuresMin = minutesToHeures(temps.min);
@@ -572,18 +577,33 @@ function calcCout(devis) {
   const heuresMoy = minutesToHeures(temps.moyenne);
   const tarif = getTarifHoraire(devis.formule_key);
 
+  // Coût par intervention (une seule visite)
   const totalMin = heuresMin * tarif;
   const totalMax = heuresMax * tarif;
   const totalMoy = heuresMoy * tarif;
 
+  // Coût mensuel et annuel, basés sur la fréquence d'intervention
+  const coefMensuel = getCoefficientFrequence(devis.frequence);
+  const mensuelMin = totalMin * coefMensuel;
+  const mensuelMax = totalMax * coefMensuel;
+  const mensuelMoy = totalMoy * coefMensuel;
+  const annuelMoy = mensuelMoy * 12;
+
   const tauxCredit = STATE.config.credit_impot_taux ?? 0.5;
   const apresCreditMoy = totalMoy * (1 - tauxCredit);
+  const apresCreditMensuelMoy = mensuelMoy * (1 - tauxCredit);
+  const apresCreditAnnuelMoy = annuelMoy * (1 - tauxCredit);
 
   return {
     heures: { min: heuresMin, max: heuresMax, moyenne: heuresMoy },
     total: { min: totalMin, max: totalMax, moyenne: totalMoy },
+    mensuel: { min: mensuelMin, max: mensuelMax, moyenne: mensuelMoy },
+    annuel: { moyenne: annuelMoy },
     apresCreditImpot: apresCreditMoy,
+    apresCreditImpotMensuel: apresCreditMensuelMoy,
+    apresCreditImpotAnnuel: apresCreditAnnuelMoy,
     tarifHoraire: tarif,
+    coefMensuel,
   };
 }
 
@@ -992,35 +1012,27 @@ function renderStepPivotOuFormule() {
   // Chemin choisi -> afficher saisie budget (si applicable) + sélection formule
   return `
     <h1 class="section-title">${d.chemin === "budget" ? "Votre budget" : "La formule souhaitée"}</h1>
-    <p class="section-sub">${d.chemin === "budget" ? "Indiquez le budget du client, puis choisissez une formule de référence." : "Choisissez la formule de référence et la fréquence d'intervention."}</p>
+    <p class="section-sub">${d.chemin === "budget" ? "Indiquez le budget mensuel du client, la fréquence d'intervention, puis choisissez une formule de référence." : "Choisissez la formule de référence et la fréquence d'intervention."}</p>
 
     <div class="card">
       ${d.chemin === "budget" ? `
-        <div class="grid-2">
-          <div class="field">
-            <label for="budgetMontant">Budget (€)</label>
-            <input type="number" id="budgetMontant" min="0" value="${d.budget_montant ?? ""}" oninput="setBudgetMontant(this.value)" placeholder="200">
-          </div>
-          <div class="field">
-            <label>Périodicité</label>
-            <div class="pill-group">
-              <button type="button" class="pill ${d.budget_periode === "hebdomadaire" ? "active" : ""}" onclick="setBudgetPeriode('hebdomadaire')">Hebdomadaire</button>
-              <button type="button" class="pill ${d.budget_periode === "mensuel" ? "active" : ""}" onclick="setBudgetPeriode('mensuel')">Mensuel</button>
-            </div>
-          </div>
-        </div>
-        <div class="divider"></div>
-      ` : `
         <div class="field">
-          <label>Fréquence d'intervention</label>
-          <div class="pill-group">
-            ${["hebdomadaire", "bimensuel", "mensuel"].map(f => `
-              <button type="button" class="pill ${d.frequence === f ? "active" : ""}" onclick="setFrequence('${f}')">${f.charAt(0).toUpperCase() + f.slice(1)}</button>
-            `).join("")}
-          </div>
+          <label for="budgetMontant">Budget mensuel (€)</label>
+          <input type="number" id="budgetMontant" min="0" value="${d.budget_montant ?? ""}" oninput="setBudgetMontant(this.value)" placeholder="200">
         </div>
         <div class="divider"></div>
-      `}
+      ` : ""}
+
+      <div class="field">
+        <label>Fréquence d'intervention</label>
+        <div class="pill-group">
+          ${["hebdomadaire", "bimensuel", "mensuel"].map(f => `
+            <button type="button" class="pill ${d.frequence === f ? "active" : ""}" onclick="setFrequence('${f}')">${f.charAt(0).toUpperCase() + f.slice(1)}</button>
+          `).join("")}
+        </div>
+        <div class="field-hint">Cette fréquence sert à calculer le montant mensuel et annuel sur le devis.</div>
+      </div>
+      <div class="divider"></div>
 
       <div class="field">
         <label>Formule de référence</label>
@@ -1057,7 +1069,6 @@ function reculerChemin() {
 }
 
 function setBudgetMontant(v) { STATE.devis.budget_montant = v === "" ? null : Number(v); }
-function setBudgetPeriode(p) { STATE.devis.budget_periode = p; renderTunnelStep(); }
 function setFrequence(f) { STATE.devis.frequence = f; renderTunnelStep(); }
 
 function choisirFormule(key) {
@@ -1069,6 +1080,10 @@ function validateStep2() {
   const d = STATE.devis;
   if (d.chemin === "budget" && (!d.budget_montant || d.budget_montant <= 0)) {
     alert("Merci d'indiquer un budget.");
+    return;
+  }
+  if (!d.frequence) {
+    alert("Merci de choisir la fréquence d'intervention.");
     return;
   }
   if (!d.formule_key) {
@@ -1226,16 +1241,17 @@ function validateStepTaches() {
     return;
   }
 
-  // CHEMIN BUDGET : vérifier si le temps nécessaire dépasse le temps permis par le budget
+  // CHEMIN BUDGET : vérifier si le temps nécessaire par intervention dépasse le temps permis par le budget
   if (STATE.devis.chemin === "budget") {
     const cout = calcCout(STATE.devis);
     const tarif = cout.tarifHoraire;
-    const budgetHebdo = STATE.devis.budget_periode === "mensuel" ? STATE.devis.budget_montant / 4.33 : STATE.devis.budget_montant;
-    const heuresPermises = budgetHebdo / tarif;
-    const heuresNecessaires = cout.heures.moyenne;
+    const coefMensuel = getCoefficientFrequence(STATE.devis.frequence);
+    const budgetParIntervention = STATE.devis.budget_montant / coefMensuel;
+    const heuresPermisesParIntervention = budgetParIntervention / tarif;
+    const heuresNecessairesParIntervention = cout.heures.moyenne;
 
-    if (heuresNecessaires > heuresPermises) {
-      STATE.devis.plan_roulement = genererPlanRoulement(STATE.devis, heuresPermises);
+    if (heuresNecessairesParIntervention > heuresPermisesParIntervention) {
+      STATE.devis.plan_roulement = genererPlanRoulement(STATE.devis, heuresPermisesParIntervention);
     } else {
       STATE.devis.plan_roulement = null;
     }
@@ -1432,21 +1448,41 @@ function renderStepRecap() {
 
       <div class="divider"></div>
       <div class="flex-between" style="margin-bottom:8px">
-        <span>Volume horaire</span>
+        <span>Volume horaire par intervention</span>
         <span class="range-display">${cout.heures.min.toFixed(1)} – ${cout.heures.max.toFixed(1)} h</span>
       </div>
       <div class="flex-between" style="margin-bottom:8px">
         <span>Tarif horaire</span>
         <span class="range-display">${cout.tarifHoraire} €/h</span>
       </div>
-      <div class="flex-between" style="font-size:1.2rem;margin-top:10px">
-        <strong>Total TTC</strong>
+      <div class="flex-between" style="margin-bottom:8px">
+        <span>Fréquence d'intervention</span>
+        <span class="range-display">${d.frequence.charAt(0).toUpperCase() + d.frequence.slice(1)}</span>
+      </div>
+      <div class="flex-between" style="font-size:1.05rem;margin-top:10px">
+        <strong>Coût par intervention</strong>
         <strong class="range-display">${cout.total.min.toFixed(0)} – ${cout.total.max.toFixed(0)} €</strong>
       </div>
+      <div class="flex-between" style="font-size:1.2rem;margin-top:8px">
+        <strong>Coût mensuel</strong>
+        <strong class="range-display">${cout.mensuel.min.toFixed(0)} – ${cout.mensuel.max.toFixed(0)} €</strong>
+      </div>
+      <div class="flex-between" style="font-size:.95rem;margin-top:6px;color:var(--ink-soft)">
+        <span>Coût annuel estimé</span>
+        <span class="range-display">${cout.annuel.moyenne.toFixed(0)} €</span>
+      </div>
+      <div class="field-hint" style="margin-top:10px">
+        Calcul basé sur ${cout.coefMensuel.toFixed(2)} intervention(s) par mois en moyenne pour une fréquence "${d.frequence}".
+      </div>
+
       <div class="card" style="margin-top:14px;background:linear-gradient(135deg,var(--sauge-soft),#E8F8EE);border:1.5px solid var(--sauge);padding:16px">
         <div class="flex-between">
-          <span style="font-size:.85rem;color:#1A5C42;font-weight:600">Après crédit d'impôt (avance -50%)</span>
-          <span style="font-family:var(--font-display);font-size:1.3rem;color:#1A5C42;font-weight:700">${cout.apresCreditImpot.toFixed(0)} €</span>
+          <span style="font-size:.85rem;color:#1A5C42;font-weight:600">Mensuel après crédit d'impôt (avance -50%)</span>
+          <span style="font-family:var(--font-display);font-size:1.3rem;color:#1A5C42;font-weight:700">${cout.apresCreditImpotMensuel.toFixed(0)} €</span>
+        </div>
+        <div class="flex-between" style="margin-top:6px">
+          <span style="font-size:.78rem;color:#1A5C42">Annuel après crédit d'impôt</span>
+          <span style="font-size:.95rem;color:#1A5C42;font-weight:700">${cout.apresCreditImpotAnnuel.toFixed(0)} €</span>
         </div>
       </div>
     </div>
@@ -1574,14 +1610,24 @@ function genererPDF(d, cout) {
   ` : ""}
 
   <div class="total-box">
-    <div class="total-row"><span>Volume horaire estimé</span><span>${cout.heures.min.toFixed(1)} – ${cout.heures.max.toFixed(1)} h</span></div>
+    <div class="total-row"><span>Volume horaire par intervention</span><span>${cout.heures.min.toFixed(1)} – ${cout.heures.max.toFixed(1)} h</span></div>
     <div class="total-row"><span>Tarif horaire</span><span>${cout.tarifHoraire} €/h</span></div>
-    <div class="total-row total-final"><span>Total TTC</span><span>${cout.total.min.toFixed(0)} – ${cout.total.max.toFixed(0)} €</span></div>
+    <div class="total-row"><span>Fréquence d'intervention</span><span>${d.frequence.charAt(0).toUpperCase() + d.frequence.slice(1)}</span></div>
+    <div class="total-row"><span>Coût par intervention</span><span>${cout.total.min.toFixed(0)} – ${cout.total.max.toFixed(0)} €</span></div>
+    <div class="total-row total-final"><span>Coût mensuel</span><span>${cout.mensuel.min.toFixed(0)} – ${cout.mensuel.max.toFixed(0)} €</span></div>
+    <div class="total-row" style="font-size:.85rem;color:#6B5E7E"><span>Coût annuel estimé</span><span>${cout.annuel.moyenne.toFixed(0)} €</span></div>
   </div>
+  <p style="font-size:.78rem;color:#6B5E7E;margin-top:6px">
+    Calcul basé sur ${cout.coefMensuel.toFixed(2)} intervention(s) par mois en moyenne (52 semaines/an) pour une fréquence "${d.frequence}".
+  </p>
   <div class="credit-box">
     <div class="total-row" style="margin-bottom:0">
-      <span style="color:#1A5C42;font-weight:600">Total après crédit d'impôt (avance immédiate -50%)</span>
-      <span style="color:#1A5C42;font-weight:700;font-size:1.15rem">${cout.apresCreditImpot.toFixed(0)} €</span>
+      <span style="color:#1A5C42;font-weight:600">Mensuel après crédit d'impôt (avance immédiate -50%)</span>
+      <span style="color:#1A5C42;font-weight:700;font-size:1.15rem">${cout.apresCreditImpotMensuel.toFixed(0)} €</span>
+    </div>
+    <div class="total-row" style="margin-bottom:0;margin-top:6px">
+      <span style="color:#1A5C42;font-size:.85rem">Annuel après crédit d'impôt</span>
+      <span style="color:#1A5C42;font-weight:600;font-size:.95rem">${cout.apresCreditImpotAnnuel.toFixed(0)} €</span>
     </div>
   </div>
 
@@ -1640,6 +1686,8 @@ function renderAdminTabContent() {
 function renderAdminTarifs() {
   const t = STATE.config.tarifs;
   const labels = { menage: "Ménage / Repassage / Rangement / Vitres", ponctuel: "Ponctuel", grand_nettoyage: "Grand nettoyage" };
+  const coefs = t.coefficients_frequence || { hebdomadaire: 4.33, bimensuel: 2.17, mensuel: 1 };
+  const labelsFreq = { hebdomadaire: "Hebdomadaire", bimensuel: "Bimensuel", mensuel: "Mensuel" };
   return `
     <div class="card" style="max-width:600px">
       <h3 style="font-size:1.05rem;margin-bottom:16px">Grille tarifaire (€/heure)</h3>
@@ -1655,6 +1703,15 @@ function renderAdminTarifs() {
         <input type="number" min="0" max="1" step="0.05" value="${STATE.config.credit_impot_taux}" onchange="updateCreditField(this.value)">
         <div class="field-hint">Ex : 0,5 = 50% du montant déduit immédiatement.</div>
       </div>
+      <div class="divider"></div>
+      <h3 style="font-size:1.05rem;margin-bottom:6px">Coefficients de fréquence (interventions/mois)</h3>
+      <p class="field-hint" style="margin-bottom:14px">Utilisés pour calculer le coût mensuel et annuel à partir du coût par intervention. Base par défaut : 52 semaines/an.</p>
+      ${Object.entries(labelsFreq).map(([key, label]) => `
+        <div class="field">
+          <label>${label}</label>
+          <input type="number" min="0" step="0.01" value="${coefs[key]}" onchange="updateCoefFrequence('${key}', this.value)">
+        </div>
+      `).join("")}
       <button class="btn btn-primary" onclick="saveConfig()">Enregistrer</button>
       <span id="tarifsSavedMsg" style="margin-left:12px;font-size:.85rem;color:var(--sauge)"></span>
     </div>
@@ -1666,6 +1723,10 @@ function updateTarifField(key, value) {
 }
 function updateCreditField(value) {
   STATE.config.credit_impot_taux = Number(value);
+}
+function updateCoefFrequence(key, value) {
+  if (!STATE.config.tarifs.coefficients_frequence) STATE.config.tarifs.coefficients_frequence = {};
+  STATE.config.tarifs.coefficients_frequence[key] = Number(value);
 }
 
 async function saveConfig() {
@@ -1775,7 +1836,7 @@ async function renderAdminUtilisateurs() {
     <div class="card" style="margin-bottom:20px">
       <h3 style="font-size:1.05rem;margin-bottom:16px">Ajouter un utilisateur</h3>
       <div class="grid-3">
-        <div class="field"><label>Identifiant</label><input type="text" id="newUserLogin" placeholder="ex: julie"></div>
+        <div class="field"><label>Identifiant</label><input type="text" id="newUserLogin" placeholder="prenom.nom"></div>
         <div class="field"><label>Mot de passe</label><input type="text" id="newUserPass" placeholder="mot de passe"></div>
         <div class="field"><label>Nom complet</label><input type="text" id="newUserNom" placeholder="Julie Martin"></div>
       </div>
